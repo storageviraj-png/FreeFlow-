@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FreeFlow — Controller</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Poppins:wght@300;500;700;800&family=Space+Mono:wght@400;700&family=Cinzel:wght@600;800&family=Bebas+Neue&family=Noto+Sans+Telugu:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/stage.css">
+<style>
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(16,185,129,0.25); border-radius: 99px; }
+  .tab-btn.active { background: #10b981; color: white; }
+  .checkered { background-color:#0b0f19; background-image: linear-gradient(45deg,#131a2b 25%,transparent 25%),linear-gradient(-45deg,#131a2b 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#131a2b 75%),linear-gradient(-45deg,transparent 75%,#131a2b 75%); background-size:12px 12px; background-position:0 0,0 6px,6px -6px,-6px 0; }
+  input[type="range"] { appearance:none; height:4px; background:rgba(16,185,129,0.15); border-radius:99px; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; background:#10b981; border-radius:50%; cursor:pointer; }
+  .playlist-item.live { border-color:#e11d48 !important; background:#fff1f2; }
+  .playlist-item.selected { outline:2px solid #10b981; }
+  @keyframes toastIn { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+  .toast { animation: toastIn .2s ease-out; }
+</style>
+</head>
+<body class="bg-[#FAF9F6] text-slate-800 font-['Inter'] h-screen w-screen overflow-hidden flex flex-col select-none">
+
+  <div id="configErrorScreen" class="hidden fixed inset-0 bg-slate-950 z-[100] flex items-center justify-center p-6">
+    <div class="max-w-lg w-full bg-white rounded-3xl shadow-2xl p-8 border border-rose-200 space-y-4">
+      <h1 class="text-xl font-bold text-rose-600">Firebase not configured</h1>
+      <p class="text-sm text-slate-600 leading-relaxed">Open <code class="bg-slate-100 px-1 py-0.5 rounded text-rose-600 font-mono">js/config.js</code> and fill in your real Firebase project values. That one file is shared with <code class="bg-slate-100 px-1 py-0.5 rounded text-rose-600 font-mono">output.html</code>.</p>
+    </div>
+  </div>
+
+  <div id="connStrip" class="w-full px-4 py-1.5 text-[10px] font-bold flex items-center justify-between bg-amber-50 text-amber-700 border-b border-amber-200 shrink-0">
+    <span id="connStripText">Connecting to Firestore…</span>
+    <span class="flex items-center gap-3">
+      <span id="connStripVersion"></span>
+      <button onclick="navigator.clipboard.writeText(location.href.replace('controller.html','output.html'));toast('output.html URL copied','success')" class="underline">Copy output.html URL</button>
+    </span>
+  </div>
+
+  <div class="flex-1 w-full flex min-h-0">
+
+    <!-- LEFT: Library -->
+    <aside class="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full">
+      <div class="flex border-b border-slate-200 text-xs font-bold">
+        <button class="tab-btn active flex-1 py-2" data-tab="bible">Bible</button>
+        <button class="tab-btn flex-1 py-2" data-tab="songs">Songs</button>
+        <button class="tab-btn flex-1 py-2" data-tab="slides">Text</button>
+        <button class="tab-btn flex-1 py-2" data-tab="images">Images</button>
+        <button class="tab-btn flex-1 py-2" data-tab="ann">Msgs</button>
+      </div>
+
+      <!-- Bible tab -->
+      <div class="tab-panel flex-1 overflow-y-auto p-3 space-y-2" data-panel="bible">
+        <div class="flex gap-2">
+          <select id="bibleTranslation" class="flex-1 border rounded-lg px-2 py-1.5 text-xs"></select>
+        </div>
+        <input id="bibleSearchInput" placeholder="e.g. John 3:16-18" class="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        <div class="grid grid-cols-2 gap-2">
+          <select id="bibleBookSelect" class="border rounded-lg px-2 py-1.5 text-xs"></select>
+          <select id="bibleChapterSelect" class="border rounded-lg px-2 py-1.5 text-xs"></select>
+        </div>
+        <button id="btnBibleGo" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-1.5 text-xs font-bold">Show Chapter</button>
+        <div id="bibleResults" class="space-y-1.5 pt-2"></div>
+      </div>
+
+      <!-- Songs tab -->
+      <div class="tab-panel hidden flex-1 overflow-y-auto p-3 space-y-2" data-panel="songs">
+        <button id="btnNewSong" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-1.5 text-xs font-bold">+ New Song</button>
+        <div id="songList" class="space-y-1.5 pt-1"></div>
+      </div>
+
+      <!-- Text slides tab -->
+      <div class="tab-panel hidden flex-1 overflow-y-auto p-3 space-y-2" data-panel="slides">
+        <input id="textSlideLabel" placeholder="Slide label" class="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        <textarea id="textSlideContent" placeholder="Slide content" rows="4" class="w-full border rounded-lg px-2 py-1.5 text-xs"></textarea>
+        <button id="btnAddTextSlide" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-1.5 text-xs font-bold">Add to Playlist</button>
+        <div id="textSlideList" class="space-y-1.5 pt-2"></div>
+      </div>
+
+      <!-- Images tab -->
+      <div class="tab-panel hidden flex-1 overflow-y-auto p-3 space-y-2" data-panel="images">
+        <input id="imageLabel" placeholder="Image label" class="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        <input id="imageUrl" placeholder="Image URL" class="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        <div class="text-[10px] text-slate-400">or upload to Firebase Storage:</div>
+        <input id="imageFile" type="file" accept="image/*" class="w-full text-[10px]" />
+        <button id="btnAddImageSlide" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-1.5 text-xs font-bold">Add to Playlist</button>
+        <div id="imageList" class="space-y-1.5 pt-2"></div>
+      </div>
+
+      <!-- Announcements / lower thirds tab -->
+      <div class="tab-panel hidden flex-1 overflow-y-auto p-3 space-y-3" data-panel="ann">
+        <div class="text-[10px] font-bold uppercase text-slate-400">Announcement Slide</div>
+        <input id="annTitle" placeholder="Title" class="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        <textarea id="annBody" placeholder="Body" rows="3" class="w-full border rounded-lg px-2 py-1.5 text-xs"></textarea>
+        <button id="btnAddAnn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-1.5 text-xs font-bold">Add Announcement</button>
+        <div class="text-[10px] font-bold uppercase text-slate-400 pt-2">Lower Third / Message Bug</div>
+        <input id="ltTitle" placeholder="Title (e.g. Welcome)" class="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        <input id="ltSubtitle" placeholder="Subtitle" class="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        <button id="btnAddLowerThird" class="w-full bg-slate-800 hover:bg-slate-900 text-white rounded-lg py-1.5 text-xs font-bold">Add Lower Third</button>
+      </div>
+    </aside>
+
+    <!-- CENTER -->
+    <main class="flex-1 flex flex-col h-full min-w-0">
+      <header class="p-3 border-b border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
+        <div class="flex items-center gap-1.5">
+          <button id="btnPrev" class="bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold">◀ Prev</button>
+          <button id="btnNext" class="bg-gradient-to-r from-rose-600 to-rose-500 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Next ▶</button>
+          <button id="btnBlackout" class="bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-xl text-xs font-bold ml-2">Blackout</button>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <select id="transitionSelect" class="border rounded-lg px-2 py-1.5 text-xs">
+            <option value="fade">Fade</option>
+            <option value="crossfade">Crossfade</option>
+            <option value="slide">Slide</option>
+            <option value="zoom">Zoom</option>
+            <option value="cut">Cut</option>
+          </select>
+          <button id="btnDeleteSlide" class="border border-rose-200 text-rose-600 px-3 py-1.5 rounded-xl text-xs font-bold">Delete Slide</button>
+        </div>
+      </header>
+
+      <div class="flex-1 flex min-h-0">
+        <!-- Playlist -->
+        <div class="w-64 border-r border-slate-200 bg-white flex flex-col shrink-0">
+          <div class="p-2 text-[10px] font-bold uppercase text-slate-400 border-b">Service Playlist</div>
+          <div id="playlistEl" class="flex-1 overflow-y-auto p-2 space-y-1.5"></div>
+        </div>
+
+        <!-- Preview canvas -->
+        <div class="flex-1 flex flex-col p-4 min-w-0">
+          <div class="text-[10px] font-bold uppercase text-slate-400 mb-2">Editable Preview (drag boxes to reposition/resize)</div>
+          <div class="flex-1 rounded-xl border border-slate-200 checkered relative overflow-hidden shadow-inner" style="aspect-ratio:16/9;">
+            <div id="previewStage" class="ff-stage absolute inset-0"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT: Inspector -->
+    <aside class="w-80 bg-white border-l border-slate-200 flex flex-col shrink-0 h-full overflow-y-auto p-3 space-y-4" id="inspector">
+      <div>
+        <div class="text-[10px] font-bold uppercase text-slate-400 mb-1.5">Slide Background</div>
+        <select id="bgMode" class="w-full border rounded-lg px-2 py-1.5 text-xs mb-1.5">
+          <option value="transparent">Transparent</option>
+          <option value="color">Solid Color</option>
+          <option value="gradient">Gradient</option>
+          <option value="image">Image</option>
+        </select>
+        <div id="bgColorRow" class="flex items-center gap-2 mb-1.5"><label class="text-xs w-20">Color</label><input id="bgColor" type="color" class="flex-1 h-8" /></div>
+        <div id="bgGradientRow" class="hidden space-y-1.5 mb-1.5">
+          <div class="flex items-center gap-2"><label class="text-xs w-20">From</label><input id="bgGradFrom" type="color" class="flex-1 h-8" /></div>
+          <div class="flex items-center gap-2"><label class="text-xs w-20">To</label><input id="bgGradTo" type="color" class="flex-1 h-8" /></div>
+          <div class="flex items-center gap-2"><label class="text-xs w-20">Angle</label><input id="bgGradAngle" type="range" min="0" max="360" class="flex-1" /></div>
+        </div>
+        <div id="bgImageRow" class="hidden mb-1.5"><input id="bgImageUrl" placeholder="Background image URL" class="w-full border rounded-lg px-2 py-1.5 text-xs" /></div>
+      </div>
+
+      <div id="elementInspector" class="hidden space-y-2 border-t pt-3">
+        <div class="text-[10px] font-bold uppercase text-slate-400">Selected Element</div>
+        <textarea id="elContent" rows="2" class="w-full border rounded-lg px-2 py-1.5 text-xs"></textarea>
+        <div class="grid grid-cols-2 gap-2">
+          <select id="elFont" class="border rounded-lg px-2 py-1.5 text-xs">
+            <option>Inter</option><option>Montserrat</option><option>Playfair Display</option>
+            <option>Poppins</option><option>Cinzel</option><option>Bebas Neue</option>
+          </select>
+          <select id="elWeight" class="border rounded-lg px-2 py-1.5 text-xs">
+            <option value="400">Regular</option><option value="600">Semibold</option>
+            <option value="700">Bold</option><option value="800">Black</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2"><label class="text-xs w-20">Size</label><input id="elFontSize" type="range" min="1" max="10" step="0.1" class="flex-1" /></div>
+        <div class="flex items-center gap-2"><label class="text-xs w-20">Letter sp.</label><input id="elLetterSpacing" type="range" min="-2" max="10" step="0.5" class="flex-1" /></div>
+        <div class="flex items-center gap-2"><label class="text-xs w-20">Opacity</label><input id="elOpacity" type="range" min="0" max="1" step="0.05" class="flex-1" /></div>
+        <div class="flex items-center gap-2"><label class="text-xs w-20">Color</label><input id="elColor" type="color" class="flex-1 h-8" /></div>
+        <div class="flex gap-1.5">
+          <button class="align-btn flex-1 border rounded-lg py-1 text-xs" data-align="left">L</button>
+          <button class="align-btn flex-1 border rounded-lg py-1 text-xs" data-align="center">C</button>
+          <button class="align-btn flex-1 border rounded-lg py-1 text-xs" data-align="right">R</button>
+        </div>
+        <div class="flex gap-1.5">
+          <button class="valign-btn flex-1 border rounded-lg py-1 text-xs" data-valign="top">Top</button>
+          <button class="valign-btn flex-1 border rounded-lg py-1 text-xs" data-valign="center">Mid</button>
+          <button class="valign-btn flex-1 border rounded-lg py-1 text-xs" data-valign="bottom">Bot</button>
+        </div>
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <div class="flex items-center gap-1"><label class="text-[10px] w-6">X%</label><input id="elX" type="number" class="w-full border rounded px-1 py-1 text-xs" /></div>
+          <div class="flex items-center gap-1"><label class="text-[10px] w-6">Y%</label><input id="elY" type="number" class="w-full border rounded px-1 py-1 text-xs" /></div>
+          <div class="flex items-center gap-1"><label class="text-[10px] w-6">W%</label><input id="elW" type="number" class="w-full border rounded px-1 py-1 text-xs" /></div>
+          <div class="flex items-center gap-1"><label class="text-[10px] w-6">H%</label><input id="elH" type="number" class="w-full border rounded px-1 py-1 text-xs" /></div>
+        </div>
+        <div class="text-[10px] font-bold uppercase text-slate-400 pt-2">Glow / Outline / Shadow</div>
+        <div class="flex items-center gap-2"><label class="text-xs w-20">Glow</label><input id="elGlow" type="range" min="0" max="30" class="flex-1" /><input id="elGlowColor" type="color" class="w-8 h-8" /></div>
+        <div class="flex items-center gap-2"><label class="text-xs w-20">Outline</label><input id="elOutline" type="range" min="0" max="6" step="0.5" class="flex-1" /><input id="elOutlineColor" type="color" class="w-8 h-8" /></div>
+        <div class="flex items-center gap-2"><label class="text-xs w-20">Shadow</label><input id="elShadow" type="range" min="0" max="20" class="flex-1" /><input id="elShadowColor" type="color" class="w-8 h-8" /></div>
+        <button id="btnAddTextBox" class="w-full border border-emerald-200 text-emerald-700 rounded-lg py-1.5 text-xs font-bold mt-2">+ Add Text Box to Slide</button>
+        <button id="btnDeleteElement" class="w-full border border-rose-200 text-rose-600 rounded-lg py-1.5 text-xs font-bold">Delete This Element</button>
+      </div>
+    </aside>
+  </div>
+
+  <div id="toastHost" class="fixed bottom-4 right-4 z-[200] space-y-2"></div>
+
+  <!-- Add/edit song modal -->
+  <div id="songModal" class="hidden fixed inset-0 bg-black/40 z-[150] items-center justify-center p-6">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg space-y-3">
+      <h2 class="font-bold text-lg">Song</h2>
+      <input id="songTitleInput" placeholder="Title" class="w-full border rounded-lg px-2 py-1.5 text-sm" />
+      <input id="songArtistInput" placeholder="Artist (optional)" class="w-full border rounded-lg px-2 py-1.5 text-sm" />
+      <textarea id="songLyricsInput" placeholder="Lyrics — one line per slide" rows="10" class="w-full border rounded-lg px-2 py-1.5 text-sm font-mono"></textarea>
+      <div class="flex justify-end gap-2">
+        <button id="btnCancelSong" class="px-3 py-1.5 text-sm rounded-lg border">Cancel</button>
+        <button id="btnSaveSong" class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 text-white font-bold">Save Song</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/controller.js"></script>
+</body>
+</html>
